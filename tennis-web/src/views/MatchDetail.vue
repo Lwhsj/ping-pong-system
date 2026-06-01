@@ -1,88 +1,113 @@
 <template>
-  <div class="match-detail-container" style="height: 100%;">
-    <div v-if="matchId" style="height: 100%;">
-      <el-row :gutter="20" style="height: 100%;">
-        <!-- Stats Panel -->
-        <el-col :span="10">
-          <el-card class="box-card" style="margin-bottom: 20px; height: 100%;">
-            <template #header>
-              <div class="card-header">
-                <span>数据统计</span>
-              </div>
-            </template>
-            <div id="chart-container" style="width: 100%; height: 400px;"></div>
-            <div class="stats-text" style="margin-top: 20px;">
-              <el-table :data="statsData" border style="width: 100%">
-                <el-table-column prop="name" label="选手" align="center" />
-                <el-table-column prop="consecutive" label="最大连胜分数" align="center" />
-                <el-table-column label="平均回合时间" align="center">
-                  <template #default>
-                    {{ stats.average_rally_time }}s
-                  </template>
-                </el-table-column>
-              </el-table>
-            </div>
-          </el-card>
-        </el-col>
+  <div class="match-detail-container">
+    <div v-if="matchId" class="detail-content">
+      <section class="detail-hero">
+        <div>
+          <p class="section-kicker">Match Analysis</p>
+          <h1>{{ matchInfo.player1_name || 'Player 1' }} <span>VS</span> {{ matchInfo.player2_name || 'Player 2' }}</h1>
+          <p>查看发球得分率、连续得分与每个回合的视频回放。</p>
+        </div>
+        <div class="match-id-card">
+          <span>比赛 ID</span>
+          <strong>{{ matchId }}</strong>
+        </div>
+      </section>
 
-        <!-- Rounds Panel -->
-        <el-col :span="14" style="height: 100%;">
-          <el-card class="box-card" style="height: 100%;">
-            <template #header>
-              <div class="card-header">
-                <span>回合记录</span>
+      <div class="detail-grid">
+        <el-card class="analysis-card" shadow="never">
+          <template #header>
+            <div class="card-header">
+              <div>
+                <span class="card-title">数据统计</span>
+                <span class="card-subtitle">发球表现与回合效率</span>
               </div>
-            </template>
-            <el-table :data="rounds" style="width: 100%" height="450" stripe size="large">
-              <el-table-column prop="rally_number" label="回合" width="80" align="center" />
-              <el-table-column prop="scorer" label="得分方" align="center">
-                <template #default="scope">
-                  <el-tag :type="scope.row.scorer === 'player1' ? 'primary' : 'warning'">
-                    {{ getPlayerName(scope.row.scorer) }}
-                  </el-tag>
-                </template>
-              </el-table-column>
-              <el-table-column prop="server" label="发球方" align="center">
-                <template #default="scope">
-                  {{ getPlayerName(scope.row.server) }}
-                </template>
-              </el-table-column>
-              <el-table-column prop="timestamp" label="时间" align="center">
-                <template #default="scope">
-                  {{ formatTime(scope.row.timestamp) }}
-                </template>
-              </el-table-column>
-              <el-table-column label="操作" align="center">
-                <template #default="scope">
-                  <el-button 
-                    v-if="scope.row.video_file"
-                    type="primary" 
-                    link 
-                    icon="VideoPlay"
-                    @click="playVideo(scope.row.video_file)"
-                  >
-                    回放
-                  </el-button>
-                  <span v-else style="color: #909399; font-size: 12px;">无视频</span>
-                </template>
-              </el-table-column>
-            </el-table>
-          </el-card>
-        </el-col>
-      </el-row>
+            </div>
+          </template>
+          <div id="chart-container" class="chart-container"></div>
+          <div class="stats-summary">
+            <div class="summary-item">
+              <span class="summary-label">平均回合时间</span>
+              <strong>{{ stats.average_rally_time }}s</strong>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">{{ matchInfo.player1_name || 'Player 1' }} 连胜</span>
+              <strong>{{ stats.consecutive_score?.player1 || 0 }}</strong>
+            </div>
+            <div class="summary-item">
+              <span class="summary-label">{{ matchInfo.player2_name || 'Player 2' }} 连胜</span>
+              <strong>{{ stats.consecutive_score?.player2 || 0 }}</strong>
+            </div>
+          </div>
+          <el-table :data="statsData" class="stats-table" border style="width: 100%">
+            <el-table-column prop="name" label="选手" align="center" />
+            <el-table-column prop="consecutive" label="最大连胜分数" align="center" />
+            <el-table-column label="平均回合时间" align="center">
+              <template #default>
+                {{ stats.average_rally_time }}s
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+
+        <el-card class="round-card" shadow="never">
+          <template #header>
+            <div class="card-header">
+              <div>
+                <span class="card-title">回合记录</span>
+                <span class="card-subtitle">得分、发球和视频回放</span>
+              </div>
+            </div>
+          </template>
+          <el-table :data="rounds" class="round-table" style="width: 100%" height="520" stripe size="large">
+            <el-table-column prop="rally_number" label="回合" width="80" align="center" />
+            <el-table-column prop="scorer" label="得分方" align="center">
+              <template #default="scope">
+                <el-tag :type="scope.row.scorer === 'player1' ? 'primary' : 'warning'" round>
+                  {{ getPlayerName(scope.row.scorer) }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column prop="server" label="发球方" align="center">
+              <template #default="scope">
+                {{ getPlayerName(scope.row.server) }}
+              </template>
+            </el-table-column>
+            <el-table-column prop="timestamp" label="时间" align="center" min-width="170">
+              <template #default="scope">
+                {{ formatTime(scope.row.timestamp) }}
+              </template>
+            </el-table-column>
+            <el-table-column label="操作" align="center" width="120">
+              <template #default="scope">
+                <el-button
+                  v-if="scope.row.video_file"
+                  type="primary"
+                  plain
+                  round
+                  icon="VideoPlay"
+                  @click="playVideo(scope.row.video_file)"
+                >
+                  回放
+                </el-button>
+                <span v-else class="muted-text">无视频</span>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-card>
+      </div>
     </div>
     
-    <el-empty v-else description="未选择比赛。">
+    <el-empty v-else class="empty-state" description="未选择比赛。">
        <el-button type="primary" @click="$router.push('/matches')">前往比赛列表</el-button>
     </el-empty>
 
-    <!-- Video Player Dialog -->
     <el-dialog
       v-model="videoVisible"
       title="回合回放"
       width="60%"
       destroy-on-close
       center
+      class="video-dialog"
       @close="stopVideo"
     >
       <div class="video-container">
@@ -90,7 +115,7 @@
           ref="videoPlayer"
           controls 
           autoplay
-          style="width: 100%; max-height: 500px;"
+          class="video-player"
           :src="currentVideoUrl"
         >
           您的浏览器不支持视频播放。
@@ -101,7 +126,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
 import { getMatchDetail, getMatchStats, getCurrentScore } from '@/api/match'
@@ -210,10 +235,23 @@ const initChart = () => {
   const myChart = echarts.init(chartDom)
   const option = {
     height: '100%',
-    tooltip: {},
-    grid: { top: 30, bottom: 30, left: 40, right: 20 },
-    xAxis: { data: [getPlayerName('player1'), getPlayerName('player2')] },
-    yAxis: { max: 100 },
+    color: ['#21b7a8', '#ffbd40'],
+    tooltip: {
+      backgroundColor: '#142033',
+      borderWidth: 0,
+      textStyle: { color: '#ffffff' }
+    },
+    grid: { top: 32, bottom: 36, left: 48, right: 20 },
+    xAxis: {
+      data: [getPlayerName('player1'), getPlayerName('player2')],
+      axisLine: { lineStyle: { color: '#d7e1eb' } },
+      axisLabel: { color: '#526276', fontWeight: 700 }
+    },
+    yAxis: {
+      max: 100,
+      splitLine: { lineStyle: { color: '#edf2f6' } },
+      axisLabel: { color: '#7a8797' }
+    },
     series: [{
       name: '发球得分率 %',
       type: 'bar',
@@ -221,8 +259,11 @@ const initChart = () => {
         (stats.value.serve_success_rate.player1 * 100).toFixed(1),
         (stats.value.serve_success_rate.player2 * 100).toFixed(1)
       ],
-      itemStyle: { color: '#409EFF' },
-      barWidth: '50%'
+      itemStyle: {
+        borderRadius: [12, 12, 4, 4],
+        color: (params) => params.dataIndex === 0 ? '#21b7a8' : '#ffbd40'
+      },
+      barWidth: '46%'
     }]
   }
   myChart.setOption(option)
@@ -230,7 +271,232 @@ const initChart = () => {
 </script>
 
 <style scoped>
+.match-detail-container,
+.detail-content {
+  min-height: 100%;
+}
+
+.detail-content {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.detail-hero {
+  display: flex;
+  align-items: stretch;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 26px 28px;
+  color: #fff;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 88% 18%, rgba(51, 218, 203, 0.26), transparent 34%),
+    linear-gradient(135deg, #141f32 0%, #173949 100%);
+  border-radius: 18px;
+  box-shadow: 0 20px 50px rgba(26, 39, 58, 0.18);
+}
+
+.section-kicker {
+  margin: 0 0 8px;
+  color: #84e8df;
+  font-size: 12px;
+  font-weight: 850;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.detail-hero h1 {
+  margin: 0;
+  font-size: 30px;
+  font-weight: 950;
+  letter-spacing: 0;
+}
+
+.detail-hero h1 span {
+  display: inline-grid;
+  width: 54px;
+  height: 34px;
+  margin: 0 8px;
+  place-items: center;
+  color: #142033;
+  font-size: 15px;
+  font-style: italic;
+  background: linear-gradient(135deg, #fff7cf, #33dacb);
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.detail-hero p {
+  max-width: 620px;
+  margin: 10px 0 0;
+  color: #c9d8e8;
+  font-size: 14px;
+}
+
+.match-id-card {
+  display: grid;
+  min-width: 128px;
+  padding: 18px 20px;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 16px;
+}
+
+.match-id-card span {
+  color: #c9d8e8;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.match-id-card strong {
+  color: #fff2b8;
+  font-size: 34px;
+  font-weight: 950;
+}
+
+.detail-grid {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.82fr) minmax(0, 1.18fr);
+  gap: 22px;
+  align-items: stretch;
+}
+
+.analysis-card,
+.round-card {
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.94);
+  border: 1px solid rgba(211, 221, 232, 0.9);
+  border-radius: 18px;
+  box-shadow: 0 18px 46px rgba(28, 42, 61, 0.09);
+}
+
+.analysis-card :deep(.el-card__header),
+.round-card :deep(.el-card__header) {
+  padding: 18px 22px;
+  border-bottom-color: #edf2f6;
+}
+
+.analysis-card :deep(.el-card__body),
+.round-card :deep(.el-card__body) {
+  padding: 22px;
+}
+
 .card-header {
-  font-weight: bold;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.card-title {
+  display: block;
+  color: #182539;
+  font-size: 18px;
+  font-weight: 900;
+}
+
+.card-subtitle {
+  display: block;
+  margin-top: 3px;
+  color: #7a8797;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.chart-container {
+  width: 100%;
+  height: 350px;
+  padding: 8px;
+  background: linear-gradient(180deg, #f8fbfd, #ffffff);
+  border: 1px solid #edf2f6;
+  border-radius: 16px;
+}
+
+.stats-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin: 16px 0;
+}
+
+.summary-item {
+  padding: 14px;
+  background: #f7fafc;
+  border: 1px solid #e5edf4;
+  border-radius: 14px;
+}
+
+.summary-label {
+  display: block;
+  color: #6b7b8f;
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.summary-item strong {
+  display: block;
+  margin-top: 6px;
+  color: #142033;
+  font-size: 26px;
+  font-weight: 950;
+  line-height: 1;
+}
+
+.stats-table :deep(.el-table__header th),
+.round-table :deep(.el-table__header th) {
+  color: #5f6f82;
+  background: #f7fafc;
+  font-weight: 850;
+}
+
+.muted-text {
+  color: #9aa7b6;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.empty-state {
+  min-height: 420px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(211, 221, 232, 0.86);
+  border-radius: 18px;
+}
+
+.video-container {
+  overflow: hidden;
+  background: #111827;
+  border-radius: 14px;
+}
+
+.video-player {
+  display: block;
+  width: 100%;
+  max-height: 560px;
+}
+
+:deep(.video-dialog .el-dialog) {
+  border-radius: 18px;
+}
+
+@media (max-width: 1120px) {
+  .detail-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .detail-hero {
+    flex-direction: column;
+    padding: 22px;
+  }
+
+  .detail-hero h1 {
+    font-size: 24px;
+  }
+
+  .stats-summary {
+    grid-template-columns: 1fr;
+  }
 }
 </style>
