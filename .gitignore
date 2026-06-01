@@ -1,0 +1,70 @@
+﻿# Ignore dot-prefixed directories in the repository root
+.*/
+.agents/
+.claude/
+.codex/
+.cursor/
+.idea/
+.trellis/
+!.gitignore
+
+# Dependencies
+node_modules/
+.pnpm-store/
+.yarn/
+
+# Build outputs
+docs/
+doc/
+dist/
+build/
+out/
+target/
+bin/
+obj/
+coverage/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+coverage.out
+cover.out
+*.coverprofile
+go.work
+go.work.sum
+
+# Java / JVM
+*.class
+*.jar
+*.war
+*.ear
+.gradle/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and local config
+.env
+.env.*
+*.local
+
+# IDE and OS generated files
+.DS_Store
+Thumbs.db
