@@ -1,37 +1,53 @@
 <template>
-  <div class="match-control">
-    <div class="header">
-      <h2>比赛</h2>
-      <div class="match-status">状态: {{ matchInfo.status }}</div>
-      <div v-if="error" class="error-message">API 错误: {{ error }}</div>
-      <div v-if="videoError" class="error-message">视频错误: {{ videoError }}</div>
-      <div v-if="isRecording" class="recording-indicator">🔴 录制中</div>
-      <div v-if="loading" class="loading-indicator">处理中...</div>
+  <section class="match-control">
+    <div class="control-header">
+      <div>
+        <p class="section-kicker">Live Match</p>
+        <h2>比赛控制台</h2>
+      </div>
+
+      <div class="status-cluster">
+        <span class="status-pill">状态：{{ statusText }}</span>
+        <span v-if="isRecording" class="status-pill recording">录制中</span>
+        <span v-if="loading" class="status-pill processing">处理中...</span>
+      </div>
+    </div>
+
+    <div v-if="error || videoError" class="message-stack">
+      <div v-if="error" class="alert alert-error">API 错误：{{ error }}</div>
+      <div v-if="videoError" class="alert alert-error">视频错误：{{ videoError }}</div>
     </div>
 
     <div class="scoreboard">
       <div class="player-score">
-        <h3>{{ matchInfo.player1Name }}</h3>
+        <p class="player-label">选手 1</p>
+        <h3>{{ matchInfo.player1Name || '选手 1' }}</h3>
         <div class="score">{{ score.p1 }}</div>
         <button @click="scorePoint('player1')" :disabled="matchInfo.status === 'finished'" class="btn-score">
-          得分
+          记为得分
         </button>
       </div>
 
-      <div class="vs">VS</div>
+      <div class="match-center">
+        <div class="vs">VS</div>
+        <div class="info-card">
+          <span>回合</span>
+          <strong>{{ rallyNumber }}</strong>
+        </div>
+        <div class="info-card server-card">
+          <span>当前发球方</span>
+          <strong>{{ currentServerName || '待同步' }}</strong>
+        </div>
+      </div>
 
-      <div class="player-score">
-        <h3>{{ matchInfo.player2Name }}</h3>
+      <div class="player-score accent">
+        <p class="player-label">选手 2</p>
+        <h3>{{ matchInfo.player2Name || '选手 2' }}</h3>
         <div class="score">{{ score.p2 }}</div>
         <button @click="scorePoint('player2')" :disabled="matchInfo.status === 'finished'" class="btn-score">
-          得分
+          记为得分
         </button>
       </div>
-    </div>
-
-    <div class="info-panel">
-      <p><strong>回合:</strong> {{ rallyNumber }}</p>
-      <p><strong>当前发球方:</strong> {{ currentServerName }}</p>
     </div>
 
     <div class="actions">
@@ -42,7 +58,7 @@
         导出 Excel
       </button>
     </div>
-  </div>
+  </section>
 </template>
 
 <script setup>
@@ -81,6 +97,12 @@ const currentServerName = computed(() => {
   return ''
 })
 
+const statusText = computed(() => {
+  if (matchInfo.status === 'finished') return '已结束'
+  if (['ongoing', 'started', 'active', 'in_progress'].includes(matchInfo.status)) return '进行中'
+  return matchInfo.status || '进行中'
+})
+
 const fetchMatchState = async () => {
   try {
     const res = await api.getMatchCurrent(matchInfo.id)
@@ -88,7 +110,7 @@ const fetchMatchState = async () => {
     rallyNumber.value = data.rally_number + 1 || 1
     score.p1 = data.score_p1 || 0
     score.p2 = data.score_p2 || 0
-    
+
     // Update current server from API response
     if (data.server === 'player1') {
       currentServerId.value = matchInfo.player1Id
@@ -108,7 +130,7 @@ onMounted(async () => {
     const parsed = JSON.parse(storedMatch)
     Object.assign(matchInfo, parsed)
     currentServerId.value = parsed.firstServerId
-    
+
     await fetchMatchState()
   } else {
     // Redirect back if no match info
@@ -127,25 +149,25 @@ const scorePoint = async (scorer) => {
   try {
     loading.value = true
     error.value = null
-    
+
     // 1. Stop current recording and get full video
     console.log('Stopping recording for rally', rallyNumber.value)
     const videoBlob = await stopAndGetBlob()
 
     // 2. Restart recording immediately for the NEXT rally
-    // We don't await this because we want to proceed with upload, 
+    // We don't await this because we want to proceed with upload,
     // but we ensure it's triggered.
     startRecording()
 
     let videoFileName = ''
-    
+
     if (videoBlob) {
        // Upload video
        const formData = new FormData()
        const fileName = `match_${matchInfo.id}_rally${rallyNumber.value}.webm`
        formData.append('file', videoBlob, fileName)
        formData.append('matchId', matchInfo.id)
-       
+
        try {
          // Upload video
          const res = await api.uploadVideo(formData)
@@ -154,7 +176,7 @@ const scorePoint = async (scorer) => {
        } catch (uploadErr) {
          console.error('Video upload failed', uploadErr)
          // Continue without video?
-         videoError.value = '视频上传失败: ' + uploadErr.message
+         videoError.value = '视频上传失败：' + uploadErr.message
        }
     }
 
@@ -168,7 +190,7 @@ const scorePoint = async (scorer) => {
       timestamp: new Date().toISOString(),
       video_file: videoFileName
     }
-    
+
     await api.recordRally(rallyData)
 
     // 3. Sync state from server
@@ -176,7 +198,7 @@ const scorePoint = async (scorer) => {
 
   } catch (err) {
     console.error('Error scoring point:', err)
-    error.value = 'Failed to record score: ' + err.message
+    error.value = '记录得分失败：' + err.message
   } finally {
     loading.value = false
   }
@@ -187,14 +209,14 @@ const finishMatch = async () => {
     try {
       loading.value = true
       await api.finishMatch(matchInfo.id)
-      
+
       matchInfo.status = 'finished'
       // Update local storage
       localStorage.setItem('currentMatch', JSON.stringify(matchInfo))
-      
+
     } catch (err) {
       console.error('Failed to finish match:', err)
-      error.value = 'Failed to finish match'
+      error.value = '结束比赛失败'
       // Fallback for demo
       matchInfo.status = 'finished'
       localStorage.setItem('currentMatch', JSON.stringify(matchInfo))
@@ -218,117 +240,319 @@ const exportExcel = async () => {
     document.body.removeChild(link)
   } catch (err) {
     console.error('Export failed:', err)
-    alert('Export failed. Server might be unavailable.')
+    alert('导出失败。请确认服务器是否可用。')
   }
 }
 </script>
 
 <style scoped>
 .match-control {
-  max-width: 800px;
+  width: min(1180px, 100%);
   margin: 0 auto;
-  padding: 20px;
-  text-align: center;
 }
 
-.header {
-  margin-bottom: 30px;
-  border-bottom: 1px solid #eee;
-  padding-bottom: 10px;
+.control-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 24px;
+}
+
+.section-kicker {
+  margin: 0 0 8px;
+  color: var(--court);
+  font-size: 13px;
+  font-weight: 900;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+h2 {
+  margin: 0;
+  font-size: clamp(30px, 5vw, 50px);
+  line-height: 1.08;
+  letter-spacing: 0;
+}
+
+.status-cluster {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.status-pill {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.78);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.recording {
+  color: #9b2c2c;
+  border-color: #f0b9af;
+  background: #fff0ed;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+
+.processing {
+  color: #805a18;
+  border-color: #f2d49b;
+  background: #fff6dd;
+}
+
+.message-stack {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.alert {
+  padding: 13px 15px;
+  border-radius: 8px;
+  line-height: 1.5;
+}
+
+.alert-error {
+  color: #8f2424;
+  background: #fff0ed;
+  border: 1px solid #f2c2ba;
 }
 
 .scoreboard {
-  display: flex;
-  justify-content: space-around;
-  align-items: center;
-  margin-bottom: 30px;
-  background: #f9f9f9;
-  padding: 20px;
+  display: grid;
+  grid-template-columns: minmax(260px, 1fr) minmax(220px, 0.62fr) minmax(260px, 1fr);
+  gap: clamp(14px, 2.5vw, 24px);
+  align-items: stretch;
+}
+
+.player-score,
+.match-center {
+  border: 1px solid var(--line);
   border-radius: 8px;
+  background: rgba(255, 255, 255, 0.92);
+  box-shadow: var(--shadow);
 }
 
 .player-score {
-  text-align: center;
+  min-height: 440px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: clamp(22px, 4vw, 34px);
+  position: relative;
+  overflow: hidden;
+}
+
+.player-score::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 8px;
+  background: var(--court);
+}
+
+.player-score.accent::before {
+  background: var(--amber);
+}
+
+.player-label {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+h3 {
+  min-height: 70px;
+  margin: 0;
+  font-size: clamp(24px, 4vw, 36px);
+  line-height: 1.2;
+  letter-spacing: 0;
+  word-break: break-word;
 }
 
 .score {
-  font-size: 48px;
-  font-weight: bold;
-  color: #333;
-  margin: 10px 0;
-}
-
-.vs {
-  font-size: 24px;
-  font-weight: bold;
-  color: #999;
+  margin: 24px 0;
+  color: var(--ink);
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: clamp(96px, 16vw, 168px);
+  font-weight: 900;
+  line-height: 0.92;
+  text-align: center;
 }
 
 .btn-score {
-  background-color: #28a745;
-  color: white;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 4px;
+  width: 100%;
+  min-height: 58px;
+  border: 0;
+  border-radius: 8px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--court), var(--court-dark));
+  box-shadow: 0 16px 30px rgba(15, 95, 82, 0.24);
   cursor: pointer;
   font-size: 18px;
+  font-weight: 900;
 }
 
-.btn-score:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
+.player-score.accent .btn-score {
+  color: var(--ink);
+  background: linear-gradient(135deg, var(--amber), var(--lime));
 }
 
-.info-panel {
-  margin-bottom: 30px;
-  font-size: 18px;
+.match-center {
+  display: grid;
+  align-content: center;
+  gap: 14px;
+  padding: 22px;
+  background:
+    linear-gradient(180deg, rgba(15, 95, 82, 0.08), transparent),
+    rgba(255, 255, 255, 0.84);
+}
+
+.vs {
+  display: grid;
+  place-items: center;
+  width: 92px;
+  height: 92px;
+  margin: 0 auto 8px;
+  border-radius: 50%;
+  color: var(--court-dark);
+  background: var(--lime);
+  box-shadow: inset -8px -10px 0 rgba(23, 32, 28, 0.09);
+  font-size: 24px;
+  font-weight: 1000;
+}
+
+.info-card {
+  display: grid;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.info-card span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.info-card strong {
+  font-size: 24px;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.server-card strong {
+  color: var(--court);
 }
 
 .actions {
   display: flex;
-  justify-content: center;
-  gap: 20px;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 22px;
+  flex-wrap: wrap;
+}
+
+.btn-danger,
+.btn-secondary {
+  min-height: 46px;
+  padding: 0 18px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 900;
 }
 
 .btn-danger {
-  background-color: #dc3545;
-  color: white;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
+  border: 1px solid #e3a7a7;
+  color: #fff;
+  background: var(--danger);
+  box-shadow: 0 14px 26px rgba(215, 75, 75, 0.2);
 }
 
 .btn-secondary {
-  background-color: #6c757d;
-  color: white;
-  padding: 10px 20px;
-  border: none;
-  border-radius: 4px;
-  cursor: pointer;
+  border: 1px solid var(--line);
+  color: var(--ink);
+  background: #fff;
 }
 
-.btn-danger:disabled, .btn-secondary:disabled {
-  background-color: #ccc;
-  cursor: not-allowed;
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+
+  50% {
+    opacity: 0.58;
+  }
 }
 
-.recording-indicator {
-  color: red;
-  font-weight: bold;
-  animation: blink 2s infinite;
-  margin-left: 10px;
-  display: inline-block;
+@media (max-width: 960px) {
+  .scoreboard {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .player-score {
+    min-height: 300px;
+  }
+
+  .match-center {
+    grid-column: 1 / -1;
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+    order: -1;
+  }
+
+  .vs {
+    width: 72px;
+    height: 72px;
+    margin: 0;
+  }
+
+  .info-card {
+    min-height: 78px;
+  }
+
+  .score {
+    font-size: clamp(82px, 18vw, 128px);
+  }
 }
 
-.error-message {
-  color: red;
-  margin-top: 5px;
-}
+@media (max-width: 680px) {
+  .control-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 
-@keyframes blink {
-  0% { opacity: 1; }
-  50% { opacity: 0.5; }
-  100% { opacity: 1; }
+  .status-cluster,
+  .actions {
+    justify-content: flex-start;
+  }
+
+  .player-score {
+    min-height: 320px;
+  }
+
+  .scoreboard {
+    grid-template-columns: 1fr;
+  }
+
+  .match-center {
+    grid-template-columns: 1fr;
+  }
+
+  .vs {
+    margin: 0 auto 8px;
+  }
 }
 </style>
