@@ -23,7 +23,7 @@
         <p class="player-label">选手 1</p>
         <h3>{{ matchInfo.player1Name || '选手 1' }}</h3>
         <div class="score">{{ score.p1 }}</div>
-        <button @click="scorePoint('player1')" :disabled="matchInfo.status === 'finished'" class="btn-score">
+        <button @click="scorePoint('player1')" :disabled="loading || matchInfo.status === 'finished'" class="btn-score">
           记为得分
         </button>
       </div>
@@ -44,7 +44,7 @@
         <p class="player-label">选手 2</p>
         <h3>{{ matchInfo.player2Name || '选手 2' }}</h3>
         <div class="score">{{ score.p2 }}</div>
-        <button @click="scorePoint('player2')" :disabled="matchInfo.status === 'finished'" class="btn-score">
+        <button @click="scorePoint('player2')" :disabled="loading || matchInfo.status === 'finished'" class="btn-score">
           记为得分
         </button>
       </div>
@@ -146,6 +146,8 @@ onUnmounted(() => {
 })
 
 const scorePoint = async (scorer) => {
+  if (loading.value) return
+
   try {
     loading.value = true
     error.value = null
