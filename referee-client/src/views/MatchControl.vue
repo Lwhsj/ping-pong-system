@@ -70,6 +70,16 @@
 
       <div class="agent-grid">
         <div class="analysis-box">
+          <div v-if="showFinalAnalysisPrompt" class="final-analysis-callout">
+            <div>
+              <strong>比赛已结束</strong>
+              <span>可以生成一份完整赛后复盘。</span>
+            </div>
+            <button type="button" @click="generateFinalAnalysis" :disabled="agentLoading">
+              生成完整复盘
+            </button>
+          </div>
+
           <label for="analysis-focus">复盘关注点</label>
           <textarea
             id="analysis-focus"
@@ -106,6 +116,9 @@
               <span>总结</span>
               <p>{{ analysis.summary || analysis.raw_text }}</p>
               <small v-if="analysisSnapshot">{{ analysisSnapshot }}</small>
+              <button type="button" class="copy-review" @click="copyAnalysis">
+                {{ copyStatus || '复制复盘' }}
+              </button>
             </div>
 
             <div v-if="analysis.strengths?.length" class="insight-section">
@@ -182,6 +195,7 @@
             <div v-for="message in chatMessages" :key="message.id" class="chat-message" :class="message.role">
               <span>{{ message.role === 'user' ? '我' : 'AI' }}</span>
               <p>{{ message.content }}</p>
+              <small v-if="message.snapshot">{{ message.snapshot }}</small>
             </div>
           </div>
 
@@ -242,6 +256,7 @@ const analysisScore = reactive({
   p1: null,
   p2: null
 })
+const copyStatus = ref('')
 const chatQuestion = ref('')
 const chatMessages = ref([])
 const chatLoading = ref(false)
@@ -256,7 +271,21 @@ const analysisPrompts = [
   '判断当前谁更占优'
 ]
 
-const suggestedQuestions = [
+const liveSuggestedQuestions = [
+  '当前谁更占优？',
+  '下一分发球方是谁？',
+  '刚才连续丢分可能是什么原因？',
+  '现在应该优先稳住什么？'
+]
+
+const finishedSuggestedQuestions = [
+  '这场输赢关键是什么？',
+  '下一场应该重点练什么？',
+  '谁的发球轮表现更好？',
+  '这场最需要复盘哪几个回合？'
+]
+
+const defaultSuggestedQuestions = [
   '这场谁的发球优势更明显？',
   '我在哪些回合开始丢节奏？',
   '后半段连续丢分的原因是什么？',
@@ -281,6 +310,8 @@ const statusText = computed(() => {
   return matchInfo.status || '进行中'
 })
 
+const isFinished = computed(() => matchInfo.status === 'finished')
+
 const agentStatusText = computed(() => {
   if (agentLoading.value || chatLoading.value) return '思考中'
   if (analysisOutdated.value) return '需更新'
@@ -301,6 +332,14 @@ const analysisOutdated = computed(() => (
   analysisScore.p2 !== null &&
   (analysisScore.p1 !== score.p1 || analysisScore.p2 !== score.p2)
 ))
+
+const suggestedQuestions = computed(() => {
+  if (isFinished.value) return finishedSuggestedQuestions
+  if (['ongoing', 'started', 'active', 'in_progress'].includes(matchInfo.status)) return liveSuggestedQuestions
+  return defaultSuggestedQuestions
+})
+
+const showFinalAnalysisPrompt = computed(() => isFinished.value && !analysis.value && !agentLoading.value)
 
 const scoreLocked = computed(() => loading.value || matchInfo.status === 'finished')
 
@@ -503,6 +542,7 @@ const analyzeMatch = async () => {
     analysisSnapshot.value = ''
     analysisScore.p1 = null
     analysisScore.p2 = null
+    copyStatus.value = ''
 
     const response = await api.analyzeMatch(matchInfo.id, analysisQuestion.value)
     analysis.value = response.data
@@ -517,6 +557,51 @@ const analyzeMatch = async () => {
   }
 }
 
+const generateFinalAnalysis = () => {
+  analysisQuestion.value = '比赛已结束，请生成完整赛后复盘，重点说明胜负关键、发球表现、连续得失分和下一场训练建议。'
+  analyzeMatch()
+}
+
+const copyAnalysis = async () => {
+  if (!analysis.value) return
+
+  const text = formatAnalysisText()
+  try {
+    await navigator.clipboard.writeText(text)
+    copyStatus.value = '已复制'
+  } catch (err) {
+    console.error('Copy analysis failed:', err)
+    copyStatus.value = '复制失败'
+  }
+  window.setTimeout(() => {
+    copyStatus.value = ''
+  }, 1800)
+}
+
+const formatAnalysisText = () => {
+  const lines = [
+    `比赛复盘：${matchInfo.player1Name || '选手 1'} vs ${matchInfo.player2Name || '选手 2'}`,
+    analysisSnapshot.value,
+    '',
+    `总结：${analysis.value.summary || analysis.value.raw_text || ''}`,
+    ...formatSection('优势', analysis.value.strengths),
+    ...formatSection('问题', analysis.value.weaknesses),
+    ...formatKeyMoments(analysis.value.key_moments),
+    ...formatSection('训练建议', analysis.value.training_suggestions)
+  ]
+  return lines.filter(line => line !== undefined && line !== null).join('\n')
+}
+
+const formatSection = (title, items = []) => {
+  if (!items.length) return []
+  return ['', `${title}：`, ...items.map(item => `- ${item}`)]
+}
+
+const formatKeyMoments = (moments = []) => {
+  if (!moments.length) return []
+  return ['', '关键回合：', ...moments.map(moment => `- #${moment.rally_number}: ${moment.reason}`)]
+}
+
 const askSuggestedQuestion = (question) => {
   chatQuestion.value = question
   sendAgentQuestion()
@@ -525,6 +610,7 @@ const askSuggestedQuestion = (question) => {
 const sendAgentQuestion = async () => {
   const question = chatQuestion.value.trim()
   if (!question || chatLoading.value) return
+  const snapshot = `基于请求时比分 ${score.p1}-${score.p2}，第 ${rallyNumber.value} 回合前的数据回答`
 
   const userMessage = {
     id: ++chatMessageId,
@@ -542,7 +628,8 @@ const sendAgentQuestion = async () => {
     chatMessages.value.push({
       id: ++chatMessageId,
       role: 'agent',
-      content: response.data.answer
+      content: response.data.answer,
+      snapshot
     })
   } catch (err) {
     console.error('Agent chat failed:', err)
@@ -933,6 +1020,44 @@ textarea:focus,
   font-weight: 900;
 }
 
+.final-analysis-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+  padding: 14px;
+  border: 1px solid rgba(207, 232, 95, 0.8);
+  border-radius: 8px;
+  background: #fbfde9;
+}
+
+.final-analysis-callout div {
+  display: grid;
+  gap: 4px;
+}
+
+.final-analysis-callout strong {
+  font-size: 16px;
+}
+
+.final-analysis-callout span {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.final-analysis-callout button,
+.copy-review {
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid rgba(15, 95, 82, 0.2);
+  border-radius: 8px;
+  color: var(--court-dark);
+  background: #fff;
+  cursor: pointer;
+  font-weight: 900;
+}
+
 .agent-alert {
   margin: 12px 0 0;
 }
@@ -997,6 +1122,12 @@ textarea:focus,
   margin-top: 12px;
   color: rgba(255, 255, 255, 0.68);
   line-height: 1.5;
+}
+
+.copy-review {
+  margin-top: 14px;
+  color: #17201c;
+  background: var(--lime);
 }
 
 .insight-section,
@@ -1110,6 +1241,12 @@ textarea:focus,
   background: var(--panel-soft);
 }
 
+.chat-message small {
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .chat-message.user {
   align-self: flex-end;
 }
@@ -1218,6 +1355,11 @@ textarea:focus,
 
   .chat-form .btn-secondary {
     width: 100%;
+  }
+
+  .final-analysis-callout {
+    align-items: stretch;
+    flex-direction: column;
   }
 }
 </style>
