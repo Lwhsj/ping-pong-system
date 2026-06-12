@@ -110,7 +110,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getCurrentScore, getMatchList, getMatchDetail } from '@/api/match'
 
@@ -121,6 +121,8 @@ const liveMatches = ref([])
 const activeMatchId = ref(null)
 const rallies = ref([])
 let timer = null
+let refreshing = false
+let scoreRequestSeq = 0
 
 const formatTime = (timeStr) => {
   if (!timeStr) return ''
@@ -131,36 +133,42 @@ const fetchLiveMatches = async () => {
   try {
     const data = await getMatchList({ status: 'started' })
     liveMatches.value = data || []
-    
+
     // Determine active match
     if (liveMatches.value.length > 0) {
-      const queryId = Number(route.query.matchId)
-      const exists = liveMatches.value.find(m => m.id === queryId)
-      
-      if (exists) {
-        activeMatchId.value = queryId
-      } else if (!activeMatchId.value) {
-        // Default to the first one if no active match selected
-        activeMatchId.value = liveMatches.value[0].id
+      const queryId = route.query.matchId ? String(route.query.matchId) : ''
+      const currentId = activeMatchId.value ? String(activeMatchId.value) : ''
+      const queryMatch = liveMatches.value.find(m => String(m.id) === queryId)
+      const currentMatch = liveMatches.value.find(m => String(m.id) === currentId)
+
+      const selectedMatch = queryMatch || currentMatch || liveMatches.value[0]
+      activeMatchId.value = selectedMatch.id
+      if (String(route.query.matchId || '') !== String(selectedMatch.id)) {
+        router.replace({ query: { ...route.query, matchId: selectedMatch.id } })
       }
     } else {
-        match.value = null
-        activeMatchId.value = null
-        rallies.value = []
+      match.value = null
+      activeMatchId.value = null
+      rallies.value = []
     }
   } catch (error) {
     console.error('Failed to fetch live matches:', error)
   }
 }
 
-const fetchScore = async () => {
-  if (!activeMatchId.value) return
+const fetchScore = async (matchId = activeMatchId.value) => {
+  if (!matchId) return
+
+  const requestedId = String(matchId)
+  const requestSeq = ++scoreRequestSeq
   
   try {
     const [scoreData, rallyData] = await Promise.all([
-        getCurrentScore(activeMatchId.value),
-        getMatchDetail(activeMatchId.value)
+        getCurrentScore(matchId),
+        getMatchDetail(matchId)
     ])
+    if (requestSeq !== scoreRequestSeq || String(activeMatchId.value) !== requestedId) return
+
     match.value = scoreData
     rallies.value = rallyData
   } catch (error) {
@@ -170,34 +178,32 @@ const fetchScore = async () => {
 
 const handleTabChange = (val) => {
   activeMatchId.value = val
-  fetchScore()
+  fetchScore(val)
   // Update URL query param without reloading to keep state shareable
   router.replace({ query: { ...route.query, matchId: val } })
 }
 
-onMounted(async () => {
-  await fetchLiveMatches()
-  if (activeMatchId.value) {
-    fetchScore()
-    // Poll for score updates
-    timer = setInterval(fetchScore, 3000)
+const refreshLiveState = async () => {
+  if (refreshing) return
+
+  refreshing = true
+  try {
+    await fetchLiveMatches()
+    if (activeMatchId.value) {
+      await fetchScore()
+    }
+  } finally {
+    refreshing = false
   }
-  
-  // Periodically refresh the list of live matches as well, 
-  // in case a new match starts or current one finishes
-  // But maybe 3s is too frequent for match list. 
-  // Let's stick to score polling for now.
+}
+
+onMounted(async () => {
+  await refreshLiveState()
+  timer = setInterval(refreshLiveState, 3000)
 })
 
 onUnmounted(() => {
   if (timer) clearInterval(timer)
-})
-
-// Watch activeMatchId to switch data source immediately
-watch(activeMatchId, (newVal) => {
-    if (newVal) {
-        fetchScore()
-    }
 })
 </script>
 

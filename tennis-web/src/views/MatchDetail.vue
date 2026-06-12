@@ -10,6 +10,10 @@
         <div class="match-id-card">
           <span>比赛 ID</span>
           <strong>{{ matchId }}</strong>
+          <el-button type="primary" class="export-button" @click="downloadExcel">
+            <el-icon><Download /></el-icon>
+            导出 Excel
+          </el-button>
         </div>
       </section>
 
@@ -126,13 +130,14 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
-import { getMatchDetail, getMatchStats, getCurrentScore } from '@/api/match'
+import { ElMessage } from 'element-plus'
+import { getMatchDetail, getMatchStats, getCurrentScore, exportMatch } from '@/api/match'
 
 const route = useRoute()
-const matchId = route.query.matchId
+const matchId = computed(() => route.query.matchId)
 const rounds = ref([])
 const matchInfo = ref({
   player1_name: 'Player 1',
@@ -162,16 +167,39 @@ const statsData = computed(() => {
 const videoVisible = ref(false)
 const currentVideoUrl = ref('')
 const videoPlayer = ref(null)
+let detailRequestSeq = 0
+
+const defaultStats = () => ({
+  serve_success_rate: { player1: 0, player2: 0 },
+  consecutive_score: { player1: 0, player2: 0 },
+  average_rally_time: 0
+})
+
+const resetMatchData = () => {
+  rounds.value = []
+  stats.value = defaultStats()
+  matchInfo.value = {
+    player1_name: 'Player 1',
+    player2_name: 'Player 2'
+  }
+}
 
 const fetchData = async () => {
-  if (!matchId) return
+  const requestedMatchId = matchId.value
+  if (!requestedMatchId) {
+    resetMatchData()
+    return
+  }
+
+  const requestSeq = ++detailRequestSeq
 
   try {
     const [roundsData, fetchedStats, scoreData] = await Promise.all([
-      getMatchDetail(matchId),
-      getMatchStats(matchId),
-      getCurrentScore(matchId)
+      getMatchDetail(requestedMatchId),
+      getMatchStats(requestedMatchId),
+      getCurrentScore(requestedMatchId)
     ])
+    if (requestSeq !== detailRequestSeq || String(matchId.value) !== String(requestedMatchId)) return
     
     rounds.value = roundsData
     stats.value = fetchedStats
@@ -181,7 +209,33 @@ const fetchData = async () => {
     
     initChart()
   } catch (error) {
+    if (requestSeq === detailRequestSeq && String(matchId.value) === String(requestedMatchId)) {
+      resetMatchData()
+      initChart()
+    }
     console.error('Failed to fetch match details:', error)
+  }
+}
+
+const downloadExcel = async () => {
+  if (!matchId.value) return
+
+  try {
+    const data = await exportMatch(matchId.value)
+    const blob = data instanceof Blob
+      ? data
+      : new Blob([data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `match_${matchId.value}.xlsx`
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
+  } catch (error) {
+    console.error('Failed to export match:', error)
+    ElMessage.error('导出失败，请确认后端服务是否可用')
   }
 }
 
@@ -220,6 +274,10 @@ const stopVideo = () => {
 }
 
 onMounted(() => {
+  fetchData()
+})
+
+watch(() => route.query.matchId, () => {
   fetchData()
 })
 
@@ -344,7 +402,7 @@ const initChart = () => {
   border-radius: 16px;
 }
 
-.match-id-card span {
+.match-id-card > span {
   color: #c9d8e8;
   font-size: 12px;
   font-weight: 800;
@@ -354,6 +412,14 @@ const initChart = () => {
   color: #fff2b8;
   font-size: 34px;
   font-weight: 950;
+}
+
+.export-button {
+  margin-top: 10px;
+  border: 0;
+  background: linear-gradient(135deg, #33dacb, #ffbd40);
+  color: #142033;
+  font-weight: 850;
 }
 
 .detail-grid {

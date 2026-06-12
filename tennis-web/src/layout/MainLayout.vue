@@ -38,7 +38,7 @@
         <div class="header-content">
           <div>
             <p class="eyebrow">Competition Dashboard</p>
-            <h3>网球赛事辅助系统</h3>
+            <h3>乒乓球赛事辅助系统</h3>
           </div>
           <div class="header-badge">
             <span class="pulse"></span>
