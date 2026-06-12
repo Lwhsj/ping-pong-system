@@ -343,7 +343,7 @@ const showFinalAnalysisPrompt = computed(() => isFinished.value && !analysis.val
 
 const scoreLocked = computed(() => loading.value || matchInfo.status === 'finished')
 
-const finishLocked = computed(() => matchInfo.status === 'finished')
+const finishLocked = computed(() => loading.value || matchInfo.status === 'finished')
 
 const numericId = (value) => {
   const parsed = Number(value)
@@ -497,21 +497,27 @@ const scorePoint = async (scorer) => {
 }
 
 const finishMatch = async () => {
+  if (loading.value || matchInfo.status === 'finished') return
+
   if (confirm('您确定要结束比赛吗？')) {
+    let finished = false
     try {
       loading.value = true
       await api.finishMatch(matchInfo.id)
 
       matchInfo.status = 'finished'
+      finished = true
       // Update local storage
       localStorage.setItem('currentMatch', JSON.stringify(matchInfo))
 
     } catch (err) {
       console.error('Failed to finish match:', err)
-      error.value = '结束比赛失败'
+      error.value = '结束比赛失败：' + apiErrorMessage(err, '请检查服务器是否可用。')
     } finally {
       loading.value = false
-      stopRecording()
+      if (finished) {
+        stopRecording()
+      }
     }
   }
 }
@@ -527,6 +533,7 @@ const exportExcel = async () => {
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
+    window.URL.revokeObjectURL(url)
   } catch (err) {
     console.error('Export failed:', err)
     alert('导出失败。请确认服务器是否可用。')
@@ -647,11 +654,24 @@ const sendAgentQuestion = async () => {
 
 const formatAgentError = (err) => {
   const status = err.response?.status
-  const backendMessage = err.response?.data?.error || err.response?.data?.message
+  const backendMessage = apiErrorMessage(err, '')
   if (status === 501) return '后端 Agent 当前未启用。'
   if (status === 503) return '后端 Agent 尚未配置模型密钥。'
   if (backendMessage) return backendMessage
   return 'AI 助手请求失败，请检查后端服务和模型配置。'
+}
+
+const apiErrorMessage = (err, fallback) => (
+  err.response?.data?.error ||
+  err.response?.data?.message ||
+  networkErrorMessage(err) ||
+  fallback
+)
+
+const networkErrorMessage = (err) => {
+  if (err.code === 'ECONNABORTED') return '请求超时，请检查后端服务是否可用。'
+  if (err.message === 'Network Error') return '无法连接后端服务，请检查服务器是否已启动。'
+  return ''
 }
 </script>
 

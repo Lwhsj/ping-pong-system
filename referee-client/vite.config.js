@@ -6,6 +6,10 @@ import path from 'path'
 export default defineConfig({
   plugins: [vue()],
   base: './', // Important for Electron to load assets with relative paths in production
+  server: {
+    port: 5173,
+    strictPort: true
+  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, 'src')

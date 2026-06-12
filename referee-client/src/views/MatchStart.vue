@@ -36,7 +36,7 @@
             <label for="player1">选手 1</label>
             <select id="player1" v-model="matchData.player1Id" required>
               <option value="" disabled>请选择选手 1</option>
-              <option v-for="player in players" :key="player.id" :value="player.id">
+              <option v-for="player in players" :key="player.id" :value="player.id" :disabled="sameId(player.id, matchData.player2Id)">
                 {{ player.name }}
               </option>
             </select>
@@ -46,7 +46,7 @@
             <label for="player2">选手 2</label>
             <select id="player2" v-model="matchData.player2Id" required>
               <option value="" disabled>请选择选手 2</option>
-              <option v-for="player in players" :key="player.id" :value="player.id">
+              <option v-for="player in players" :key="player.id" :value="player.id" :disabled="sameId(player.id, matchData.player1Id)">
                 {{ player.name }}
               </option>
             </select>
@@ -80,7 +80,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../services/api'
 
@@ -98,8 +98,39 @@ const matchData = reactive({
 })
 
 const getPlayerName = (id) => {
-  const player = players.value.find(p => p.id === id)
+  const player = players.value.find(p => sameId(p.id, id))
   return player ? player.name : ''
+}
+
+const selectedPlayers = () => [matchData.player1Id, matchData.player2Id].filter(Boolean)
+
+const sameId = (left, right) => String(left || '') === String(right || '')
+
+const includesId = (ids, id) => ids.some(item => sameId(item, id))
+
+watch(
+  () => [matchData.player1Id, matchData.player2Id],
+  ([player1Id, player2Id]) => {
+    if (player1Id && sameId(player1Id, player2Id)) {
+      matchData.player2Id = ''
+    }
+    if (matchData.firstServerId && !includesId(selectedPlayers(), matchData.firstServerId)) {
+      matchData.firstServerId = ''
+    }
+  }
+)
+
+const errorMessage = (err, fallback) => (
+  err.response?.data?.error ||
+  err.response?.data?.message ||
+  networkErrorMessage(err) ||
+  fallback
+)
+
+const networkErrorMessage = (err) => {
+  if (err.code === 'ECONNABORTED') return '请求超时，请检查后端服务是否可用。'
+  if (err.message === 'Network Error') return '无法连接后端服务，请检查服务器是否已启动。'
+  return ''
 }
 
 onMounted(async () => {
@@ -128,6 +159,15 @@ const startMatch = async () => {
     loading.value = true
     error.value = null
 
+    if (sameId(matchData.player1Id, matchData.player2Id)) {
+      error.value = '开始比赛失败：请选择两名不同的选手。'
+      return
+    }
+    if (!includesId(selectedPlayers(), matchData.firstServerId)) {
+      error.value = '开始比赛失败：先发球方必须是本场比赛选手。'
+      return
+    }
+
     const payload = {
       player1_id: matchData.player1Id,
       player2_id: matchData.player2Id,
@@ -149,7 +189,7 @@ const startMatch = async () => {
     router.push({ name: 'MatchControl', params: { id: match.id } })
   } catch (err) {
     console.error('Failed to start match:', err)
-    error.value = '开始比赛失败：' + (err.response?.data?.message || err.message)
+    error.value = '开始比赛失败：' + errorMessage(err, '请检查服务器连接。')
   } finally {
     loading.value = false
   }
