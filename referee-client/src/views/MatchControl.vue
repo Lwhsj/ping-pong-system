@@ -407,10 +407,11 @@ const scorePoint = async (scorer) => {
     console.log('Stopping recording for rally', rallyNumber.value)
     const videoBlob = await stopAndGetBlob()
 
-    // 2. Restart recording immediately for the NEXT rally
-    // We don't await this because we want to proceed with upload,
-    // but we ensure it's triggered.
-    startRecording()
+    // 2. Restart recording for the NEXT rally before upload work continues.
+    const recordingRestarted = await startRecording()
+    if (!recordingRestarted) {
+      videoError.value = videoError.value || '下一回合录制启动失败，请检查摄像头权限'
+    }
 
     let videoFileName = ''
 

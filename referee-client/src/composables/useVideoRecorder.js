@@ -7,8 +7,26 @@ export function useVideoRecorder() {
   const error = ref(null)
   const stream = ref(null)
 
+  const recorderOptions = () => {
+    const options = { mimeType: 'video/webm;codecs=vp8' }
+    if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+      options.mimeType = 'video/webm'
+      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+        return undefined
+      }
+    }
+    return options
+  }
+
   const startRecording = async () => {
     try {
+      error.value = null
+
+      if (mediaRecorder.value && mediaRecorder.value.state !== 'inactive') {
+        isRecording.value = true
+        return true
+      }
+
       if (!stream.value || !stream.value.active) {
          // Ensure previous tracks are stopped if any exist in a bad state
          if (stream.value) {
@@ -16,16 +34,8 @@ export function useVideoRecorder() {
          }
          stream.value = await navigator.mediaDevices.getUserMedia({ video: true })
       }
-      
-      const options = { mimeType: 'video/webm;codecs=vp8' }
-      if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-        options.mimeType = 'video/webm'
-        if (!MediaRecorder.isTypeSupported(options.mimeType)) {
-            delete options.mimeType // Fallback to browser default
-        }
-      }
 
-      mediaRecorder.value = new MediaRecorder(stream.value, options.mimeType ? options : undefined)
+      mediaRecorder.value = new MediaRecorder(stream.value, recorderOptions())
       
       chunks.value = []
 
@@ -35,38 +45,62 @@ export function useVideoRecorder() {
         }
       }
 
-      mediaRecorder.value.start(1000) // Slice every 1 second
+      mediaRecorder.value.onerror = (event) => {
+        console.error('Video recording error:', event.error || event)
+        error.value = event.error?.message || '视频录制失败'
+        isRecording.value = false
+      }
+
+      // Keep each rally as one complete media container. MediaRecorder chunks are
+      // collected only to assemble the final Blob after stop(), not as video files.
+      mediaRecorder.value.start()
       isRecording.value = true
       console.log('Video recording started')
+      return true
     } catch (err) {
       console.error('Error starting video recording:', err)
       error.value = err.message
       isRecording.value = false
+      return false
     }
   }
 
   const stopAndGetBlob = () => {
     return new Promise((resolve) => {
-      if (!mediaRecorder.value || mediaRecorder.value.state === 'inactive') {
-        resolve(chunks.value.length > 0 ? new Blob(chunks.value, { type: 'video/webm' }) : null)
+      const recorder = mediaRecorder.value
+      if (!recorder) {
+        resolve(null)
         return
       }
 
-      mediaRecorder.value.onstop = () => {
-        const blob = new Blob(chunks.value, { type: 'video/webm' })
-        resolve(blob)
+      const blobType = recorder.mimeType || 'video/webm'
+
+      if (recorder.state === 'inactive') {
+        const blob = chunks.value.length > 0 ? new Blob(chunks.value, { type: blobType }) : null
+        resolve(blob && blob.size > 0 ? blob : null)
+        return
+      }
+
+      recorder.onstop = () => {
+        const blob = chunks.value.length > 0 ? new Blob(chunks.value, { type: blobType }) : null
+        isRecording.value = false
+        resolve(blob && blob.size > 0 ? blob : null)
       }
       
-      mediaRecorder.value.stop()
+      recorder.stop()
       // Do NOT stop stream here, so we can restart quickly
       isRecording.value = false
     })
   }
 
   const stopRecording = () => {
-    if (mediaRecorder.value && mediaRecorder.value.state !== 'inactive') {
-      mediaRecorder.value.stop()
+    const recorder = mediaRecorder.value
+    if (recorder && recorder.state !== 'inactive') {
+      recorder.ondataavailable = null
+      recorder.onstop = null
+      recorder.stop()
     }
+    mediaRecorder.value = null
     if (stream.value) {
       stream.value.getTracks().forEach(track => track.stop())
       stream.value = null
