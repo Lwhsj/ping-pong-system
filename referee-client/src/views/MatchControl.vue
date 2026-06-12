@@ -219,6 +219,51 @@ const scoreLocked = computed(() => loading.value || matchInfo.status === 'finish
 
 const finishLocked = computed(() => matchInfo.status === 'finished')
 
+const numericId = (value) => {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : ''
+}
+
+const applyMatchInfo = (match) => {
+  matchInfo.id = numericId(match.id)
+  matchInfo.player1Id = numericId(match.player1_id || match.player1Id || match.player1ID)
+  matchInfo.player2Id = numericId(match.player2_id || match.player2Id || match.player2ID)
+  matchInfo.player1Name = match.player1_name || match.player1Name || ''
+  matchInfo.player2Name = match.player2_name || match.player2Name || ''
+  matchInfo.firstServerId = numericId(match.first_server || match.firstServerId)
+  matchInfo.status = match.status || ''
+  currentServerId.value = matchInfo.firstServerId
+}
+
+const loadStoredMatch = () => {
+  const storedMatch = localStorage.getItem('currentMatch')
+  if (!storedMatch) return null
+  try {
+    return JSON.parse(storedMatch)
+  } catch (err) {
+    console.warn('Invalid stored match info', err)
+    localStorage.removeItem('currentMatch')
+    return null
+  }
+}
+
+const loadMatchInfo = async () => {
+  const routeMatchId = Number(route.params.id || 0)
+  if (routeMatchId > 0) {
+    const response = await api.getMatch(routeMatchId)
+    applyMatchInfo(response.data)
+    localStorage.setItem('currentMatch', JSON.stringify(matchInfo))
+    return true
+  }
+
+  const storedMatch = loadStoredMatch()
+  if (storedMatch?.id) {
+    applyMatchInfo(storedMatch)
+    return true
+  }
+  return false
+}
+
 const fetchMatchState = async () => {
   try {
     const res = await api.getMatchCurrent(matchInfo.id)
@@ -226,6 +271,8 @@ const fetchMatchState = async () => {
     rallyNumber.value = data.rally_number + 1 || 1
     score.p1 = data.score_p1 || 0
     score.p2 = data.score_p2 || 0
+    matchInfo.player1Name = data.player1_name || matchInfo.player1Name
+    matchInfo.player2Name = data.player2_name || matchInfo.player2Name
 
     // Update current server from API response
     if (data.server === 'player1') {
@@ -240,26 +287,16 @@ const fetchMatchState = async () => {
 }
 
 onMounted(async () => {
-  // Load match info from local storage (mocking backend retrieval)
-  const routeMatchId = String(route.params.id || '')
-  const storedMatch = localStorage.getItem('currentMatch')
-  if (storedMatch) {
-    const parsed = JSON.parse(storedMatch)
-    Object.assign(matchInfo, parsed)
-    if (routeMatchId && routeMatchId !== String(parsed.id)) {
-      matchInfo.id = routeMatchId
-      matchInfo.status = ''
-      matchInfo.player1Name = ''
-      matchInfo.player2Name = ''
+  try {
+    const hasMatch = await loadMatchInfo()
+    if (!hasMatch) {
+      router.push('/')
+      return
     }
-    currentServerId.value = parsed.firstServerId
-
     await fetchMatchState()
-  } else if (routeMatchId) {
-    matchInfo.id = routeMatchId
-    await fetchMatchState()
-  } else {
-    // Redirect back if no match info
+  } catch (err) {
+    console.error('Failed to load match info', err)
+    error.value = '加载比赛信息失败'
     router.push('/')
     return
   }
@@ -304,8 +341,7 @@ const scorePoint = async (scorer) => {
          console.log('Video uploaded:', videoFileName)
        } catch (uploadErr) {
          console.error('Video upload failed', uploadErr)
-         // Continue without video?
-         videoError.value = '视频上传失败：' + uploadErr.message
+         videoError.value = '视频上传失败，比分会继续记录：' + uploadErr.message
        }
     }
 
@@ -346,9 +382,6 @@ const finishMatch = async () => {
     } catch (err) {
       console.error('Failed to finish match:', err)
       error.value = '结束比赛失败'
-      // Fallback for demo
-      matchInfo.status = 'finished'
-      localStorage.setItem('currentMatch', JSON.stringify(matchInfo))
     } finally {
       loading.value = false
       stopRecording()

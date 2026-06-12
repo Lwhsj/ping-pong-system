@@ -42,5 +42,5 @@ type RallyRequest struct {
 	Scorer      string        `json:"scorer" binding:"required"`
 	Server      string        `json:"server" binding:"required"`
 	Timestamp   LocalDateTime `json:"timestamp" binding:"required"`
-	VideoFile   string        `json:"video_file" binding:"required"`
+	VideoFile   string        `json:"video_file"`
 }

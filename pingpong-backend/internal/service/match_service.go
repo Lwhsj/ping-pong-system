@@ -38,6 +38,15 @@ func (s *MatchService) StartMatch(request dto.MatchStartRequest) (model.Match, e
 	return match, nil
 }
 
+func (s *MatchService) GetMatch(id uint64) (model.Match, error) {
+	var match model.Match
+	if err := s.db.First(&match, id).Error; err != nil {
+		return model.Match{}, err
+	}
+	match.Player1Name, match.Player2Name = s.playerNames(match)
+	return match, nil
+}
+
 func (s *MatchService) FinishMatch(id uint64) (model.Match, error) {
 	var match model.Match
 	if err := s.db.First(&match, id).Error; err != nil {

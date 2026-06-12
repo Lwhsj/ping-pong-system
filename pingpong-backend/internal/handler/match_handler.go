@@ -37,6 +37,24 @@ func (h *MatchHandler) StartMatch(c *gin.Context) {
 	c.JSON(http.StatusOK, match)
 }
 
+func (h *MatchHandler) GetMatch(c *gin.Context) {
+	id, ok := parseUintParam(c, "id")
+	if !ok {
+		return
+	}
+
+	match, err := h.matchService.GetMatch(id)
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Match not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, match)
+}
+
 func (h *MatchHandler) FinishMatch(c *gin.Context) {
 	id, ok := parseUintParam(c, "id")
 	if !ok {

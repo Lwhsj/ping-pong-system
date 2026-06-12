@@ -40,6 +40,7 @@ func New(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.GET("/players", playerHandler.GetAllPlayers)
 
 		api.POST("/match/start", matchHandler.StartMatch)
+		api.GET("/match/:id", matchHandler.GetMatch)
 		api.POST("/match/:id/finish", matchHandler.FinishMatch)
 		api.GET("/match/:id/current", matchHandler.CurrentScore)
 		api.GET("/matches", matchHandler.MatchHistory)

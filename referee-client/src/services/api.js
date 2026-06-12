@@ -20,6 +20,10 @@ export default {
     return api.post('/match/start', matchData)
   },
 
+  getMatch(matchId) {
+    return api.get(`/match/${matchId}`)
+  },
+
   finishMatch(matchId) {
     // The design doc says POST /api/match/{id}/finish with body params, 
     // but usually finish just needs ID. 
