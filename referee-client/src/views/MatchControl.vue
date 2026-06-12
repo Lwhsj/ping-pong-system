@@ -77,13 +77,31 @@
             rows="3"
             placeholder="例如：重点分析后半段连续丢分、发球轮表现、关键分处理"
           ></textarea>
+
+          <div class="quick-actions" aria-label="复盘关注点快捷选择">
+            <button
+              v-for="item in analysisPrompts"
+              :key="item"
+              type="button"
+              class="quick-chip"
+              @click="analysisQuestion = item"
+            >
+              {{ item }}
+            </button>
+          </div>
+
           <button @click="analyzeMatch" :disabled="agentLoading" class="btn-agent">
             {{ agentLoading ? '生成中...' : '生成 AI 复盘' }}
           </button>
 
-          <div v-if="agentError" class="alert alert-error agent-alert">{{ agentError }}</div>
+          <div v-if="analysisError" class="alert alert-error agent-alert">{{ analysisError }}</div>
 
           <div v-if="analysis" class="analysis-result">
+            <div v-if="analysisOutdated" class="alert alert-warning">
+              该复盘基于 {{ analysisScoreLabel }} 生成，当前比分已变为 {{ currentScoreLabel }}。
+              <button type="button" @click="analyzeMatch" :disabled="agentLoading">重新生成</button>
+            </div>
+
             <div class="summary-card">
               <span>总结</span>
               <p>{{ analysis.summary || analysis.raw_text }}</p>
@@ -118,6 +136,21 @@
                 <li v-for="item in analysis.training_suggestions" :key="item">{{ item }}</li>
               </ul>
             </div>
+
+            <div class="follow-up-panel">
+              <h4>继续追问</h4>
+              <div class="quick-actions">
+                <button
+                  v-for="item in followUpQuestions"
+                  :key="item"
+                  type="button"
+                  class="quick-chip"
+                  @click="askSuggestedQuestion(item)"
+                >
+                  {{ item }}
+                </button>
+              </div>
+            </div>
           </div>
 
           <div v-else class="empty-agent-state">
@@ -133,13 +166,26 @@
 
           <div class="chat-log">
             <div v-if="!chatMessages.length" class="chat-empty">
-              可以问：这场谁发球更占优？我在哪些回合开始丢节奏？
+              <span>可以直接点一个问题开始。</span>
+              <div class="quick-actions">
+                <button
+                  v-for="item in suggestedQuestions"
+                  :key="item"
+                  type="button"
+                  class="quick-chip"
+                  @click="askSuggestedQuestion(item)"
+                >
+                  {{ item }}
+                </button>
+              </div>
             </div>
             <div v-for="message in chatMessages" :key="message.id" class="chat-message" :class="message.role">
               <span>{{ message.role === 'user' ? '我' : 'AI' }}</span>
               <p>{{ message.content }}</p>
             </div>
           </div>
+
+          <div v-if="chatError" class="alert alert-error chat-alert">{{ chatError }}</div>
 
           <form class="chat-form" @submit.prevent="sendAgentQuestion">
             <input
@@ -190,12 +236,38 @@ const error = ref(null)
 const analysisQuestion = ref('')
 const analysis = ref(null)
 const agentLoading = ref(false)
-const agentError = ref(null)
+const analysisError = ref(null)
 const analysisSnapshot = ref('')
+const analysisScore = reactive({
+  p1: null,
+  p2: null
+})
 const chatQuestion = ref('')
 const chatMessages = ref([])
 const chatLoading = ref(false)
+const chatError = ref(null)
 let chatMessageId = 0
+
+const analysisPrompts = [
+  '重点分析发球表现',
+  '找出连续失分的原因',
+  '分析关键分处理',
+  '给出下一场训练建议',
+  '判断当前谁更占优'
+]
+
+const suggestedQuestions = [
+  '这场谁的发球优势更明显？',
+  '我在哪些回合开始丢节奏？',
+  '后半段连续丢分的原因是什么？',
+  '下一场应该重点练什么？'
+]
+
+const followUpQuestions = [
+  '为什么这些回合是转折点？',
+  '只看选手 1 的问题',
+  '给我 3 个可执行训练动作'
+]
 
 const currentServerName = computed(() => {
   if (currentServerId.value === matchInfo.player1Id) return matchInfo.player1Name
@@ -211,9 +283,24 @@ const statusText = computed(() => {
 
 const agentStatusText = computed(() => {
   if (agentLoading.value || chatLoading.value) return '思考中'
+  if (analysisOutdated.value) return '需更新'
   if (analysis.value) return '已有复盘'
   return '待生成'
 })
+
+const currentScoreLabel = computed(() => `${score.p1}-${score.p2}`)
+
+const analysisScoreLabel = computed(() => {
+  if (analysisScore.p1 === null || analysisScore.p2 === null) return ''
+  return `${analysisScore.p1}-${analysisScore.p2}`
+})
+
+const analysisOutdated = computed(() => (
+  Boolean(analysis.value) &&
+  analysisScore.p1 !== null &&
+  analysisScore.p2 !== null &&
+  (analysisScore.p1 !== score.p1 || analysisScore.p2 !== score.p2)
+))
 
 const scoreLocked = computed(() => loading.value || matchInfo.status === 'finished')
 
@@ -410,19 +497,28 @@ const analyzeMatch = async () => {
   const snapshot = `基于请求时比分 ${score.p1}-${score.p2}，第 ${rallyNumber.value} 回合前的数据生成`
   try {
     agentLoading.value = true
-    agentError.value = null
+    analysisError.value = null
     analysis.value = null
     analysisSnapshot.value = ''
+    analysisScore.p1 = null
+    analysisScore.p2 = null
 
     const response = await api.analyzeMatch(matchInfo.id, analysisQuestion.value)
     analysis.value = response.data
     analysisSnapshot.value = snapshot
+    analysisScore.p1 = score.p1
+    analysisScore.p2 = score.p2
   } catch (err) {
     console.error('Agent analysis failed:', err)
-    agentError.value = formatAgentError(err)
+    analysisError.value = formatAgentError(err)
   } finally {
     agentLoading.value = false
   }
+}
+
+const askSuggestedQuestion = (question) => {
+  chatQuestion.value = question
+  sendAgentQuestion()
 }
 
 const sendAgentQuestion = async () => {
@@ -439,7 +535,7 @@ const sendAgentQuestion = async () => {
 
   try {
     chatLoading.value = true
-    agentError.value = null
+    chatError.value = null
 
     const response = await api.chatWithAgent(matchInfo.id, question)
     chatMessages.value.push({
@@ -450,7 +546,7 @@ const sendAgentQuestion = async () => {
   } catch (err) {
     console.error('Agent chat failed:', err)
     const message = formatAgentError(err)
-    agentError.value = message
+    chatError.value = message
     chatMessages.value.push({
       id: ++chatMessageId,
       role: 'agent',
@@ -550,6 +646,28 @@ h2 {
   color: #8f2424;
   background: #fff0ed;
   border: 1px solid #f2c2ba;
+}
+
+.alert-warning {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: #73511a;
+  background: #fff8dc;
+  border: 1px solid #f2d49b;
+}
+
+.alert-warning button {
+  min-height: 32px;
+  flex: 0 0 auto;
+  padding: 0 10px;
+  border: 1px solid #e5bd67;
+  border-radius: 8px;
+  color: #17201c;
+  background: #fff;
+  cursor: pointer;
+  font-weight: 900;
 }
 
 .scoreboard {
@@ -818,6 +936,34 @@ textarea:focus,
   margin: 12px 0 0;
 }
 
+.chat-alert {
+  margin: 0;
+}
+
+.quick-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.quick-chip {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid rgba(15, 95, 82, 0.18);
+  border-radius: 999px;
+  color: var(--court-dark);
+  background: rgba(255, 255, 255, 0.84);
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.quick-chip:hover {
+  border-color: rgba(15, 95, 82, 0.36);
+  background: rgba(207, 232, 95, 0.22);
+}
+
 .analysis-result {
   display: grid;
   gap: 14px;
@@ -880,6 +1026,18 @@ textarea:focus,
   background: #fbfde9;
 }
 
+.follow-up-panel {
+  padding: 14px;
+  border: 1px solid rgba(15, 95, 82, 0.18);
+  border-radius: 8px;
+  background: rgba(246, 247, 242, 0.86);
+}
+
+.follow-up-panel h4 {
+  margin: 0;
+  font-size: 16px;
+}
+
 .moment-row {
   display: grid;
   grid-template-columns: 58px minmax(0, 1fr);
@@ -899,13 +1057,16 @@ textarea:focus,
 
 .empty-agent-state,
 .chat-empty {
-  margin-top: 14px;
   padding: 16px;
   border: 1px dashed #cdd8c6;
   border-radius: 8px;
   color: var(--muted);
   background: rgba(246, 247, 242, 0.72);
   line-height: 1.6;
+}
+
+.empty-agent-state {
+  margin-top: 14px;
 }
 
 .chat-box {
