@@ -184,12 +184,12 @@ func (s *MatchService) ExportMatch(id uint64, out io.Writer) error {
 	defer file.Close()
 
 	defaultSheet := file.GetSheetName(0)
-	sheet := "姣旇禌鏁版嵁"
+	sheet := "比赛数据"
 	if err := file.SetSheetName(defaultSheet, sheet); err != nil {
 		return err
 	}
 
-	columns := []string{"鍥炲悎鏁?", "寰楀垎鑰?", "姣斿垎 (P1-P2)", "鍙戠悆鏂?", "鏃堕棿"}
+	columns := []string{"回合数", "得分者", "比分 (P1-P2)", "发球方", "时间"}
 	for idx, column := range columns {
 		cell, err := excelize.CoordinatesToCellName(idx+1, 1)
 		if err != nil {

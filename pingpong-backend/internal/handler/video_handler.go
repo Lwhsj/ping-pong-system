@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -57,9 +58,8 @@ func (h *VideoHandler) UploadVideo(c *gin.Context) {
 		fileName = fmt.Sprintf("video_%s_%d.webm", matchID, time.Now().UnixMilli())
 	}
 	fileName = unsafeFileNameChars.ReplaceAllString(fileName, "_")
-	targetPath := filepath.Join(h.uploadDir, fileName)
 
-	out, err := os.Create(targetPath)
+	out, storedFileName, err := h.createUploadFile(fileName)
 	if err != nil {
 		c.String(http.StatusInternalServerError, "Could not upload file: "+err.Error())
 		return
@@ -70,7 +70,7 @@ func (h *VideoHandler) UploadVideo(c *gin.Context) {
 		c.String(http.StatusInternalServerError, "Could not upload file: "+err.Error())
 		return
 	}
-	c.String(http.StatusOK, fileName)
+	c.String(http.StatusOK, storedFileName)
 }
 
 func (h *VideoHandler) StreamVideo(c *gin.Context) {
@@ -151,6 +151,35 @@ func videoContentType(fileName string) string {
 	default:
 		return "application/octet-stream"
 	}
+}
+
+func (h *VideoHandler) createUploadFile(fileName string) (*os.File, string, error) {
+	for attempt := 0; attempt < 100; attempt++ {
+		candidate := fileName
+		if attempt > 0 {
+			candidate = withUploadSuffix(fileName, attempt)
+		}
+
+		targetPath := filepath.Join(h.uploadDir, candidate)
+		file, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0644)
+		if err == nil {
+			return file, candidate, nil
+		}
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		return nil, "", err
+	}
+	return nil, "", fmt.Errorf("could not create a unique upload file for %q", fileName)
+}
+
+func withUploadSuffix(fileName string, attempt int) string {
+	ext := filepath.Ext(fileName)
+	base := strings.TrimSuffix(fileName, ext)
+	if strings.Trim(base, "._-") == "" {
+		base = "video"
+	}
+	return fmt.Sprintf("%s_%d_%d%s", base, time.Now().UnixMilli(), attempt, ext)
 }
 
 func parseRange(header string, contentLength int64) (int64, int64, bool) {
