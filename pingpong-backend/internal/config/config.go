@@ -9,34 +9,44 @@ import (
 )
 
 type Config struct {
-	AppPort     string
-	AppEnv      string
-	DBHost      string
-	DBPort      string
-	DBName      string
-	DBUser      string
-	DBPassword  string
-	DBParseTime string
-	DBLoc       string
-	UploadDir   string
-	MaxUploadMB int64
+	AppPort             string
+	AppEnv              string
+	DBHost              string
+	DBPort              string
+	DBName              string
+	DBUser              string
+	DBPassword          string
+	DBParseTime         string
+	DBLoc               string
+	UploadDir           string
+	MaxUploadMB         int64
+	AgentEnabled        bool
+	LLMBaseURL          string
+	LLMAPIKey           string
+	LLMModel            string
+	AgentTimeoutSeconds int
 }
 
 func Load() Config {
 	_ = godotenv.Load()
 
 	return Config{
-		AppPort:     getEnv("APP_PORT", "8080"),
-		AppEnv:      getEnv("APP_ENV", "development"),
-		DBHost:      getEnv("DB_HOST", "127.0.0.1"),
-		DBPort:      getEnv("DB_PORT", "3306"),
-		DBName:      getEnv("DB_NAME", "pingpong"),
-		DBUser:      getEnv("DB_USER", "root"),
-		DBPassword:  getEnv("DB_PASSWORD", "1234"),
-		DBParseTime: getEnv("DB_PARSE_TIME", "true"),
-		DBLoc:       getEnv("DB_LOC", "Local"),
-		UploadDir:   getEnv("UPLOAD_DIR", "uploads"),
-		MaxUploadMB: getEnvInt64("MAX_UPLOAD_MB", 50),
+		AppPort:             getEnv("APP_PORT", "8080"),
+		AppEnv:              getEnv("APP_ENV", "development"),
+		DBHost:              getEnv("DB_HOST", "127.0.0.1"),
+		DBPort:              getEnv("DB_PORT", "3306"),
+		DBName:              getEnv("DB_NAME", "pingpong"),
+		DBUser:              getEnv("DB_USER", "root"),
+		DBPassword:          getEnv("DB_PASSWORD", "1234"),
+		DBParseTime:         getEnv("DB_PARSE_TIME", "true"),
+		DBLoc:               getEnv("DB_LOC", "Local"),
+		UploadDir:           getEnv("UPLOAD_DIR", "uploads"),
+		MaxUploadMB:         getEnvInt64("MAX_UPLOAD_MB", 50),
+		AgentEnabled:        getEnvBool("AGENT_ENABLED", true),
+		LLMBaseURL:          getEnv("LLM_BASE_URL", "https://api.openai.com/v1"),
+		LLMAPIKey:           getEnv("LLM_API_KEY", ""),
+		LLMModel:            getEnv("LLM_MODEL", "gpt-4o-mini"),
+		AgentTimeoutSeconds: getEnvInt("AGENT_TIMEOUT_SECONDS", 30),
 	}
 }
 
@@ -66,6 +76,30 @@ func getEnvInt64(key string, fallback int64) int64 {
 		return fallback
 	}
 	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvInt(key string, fallback int) int {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
 	if err != nil {
 		return fallback
 	}

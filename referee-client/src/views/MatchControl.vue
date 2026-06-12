@@ -23,7 +23,7 @@
         <p class="player-label">选手 1</p>
         <h3>{{ matchInfo.player1Name || '选手 1' }}</h3>
         <div class="score">{{ score.p1 }}</div>
-        <button @click="scorePoint('player1')" :disabled="loading || matchInfo.status === 'finished'" class="btn-score">
+        <button @click="scorePoint('player1')" :disabled="scoreLocked" class="btn-score">
           记为得分
         </button>
       </div>
@@ -44,20 +44,117 @@
         <p class="player-label">选手 2</p>
         <h3>{{ matchInfo.player2Name || '选手 2' }}</h3>
         <div class="score">{{ score.p2 }}</div>
-        <button @click="scorePoint('player2')" :disabled="loading || matchInfo.status === 'finished'" class="btn-score">
+        <button @click="scorePoint('player2')" :disabled="scoreLocked" class="btn-score">
           记为得分
         </button>
       </div>
     </div>
 
     <div class="actions">
-      <button @click="finishMatch" :disabled="matchInfo.status === 'finished'" class="btn-danger">
+      <button @click="finishMatch" :disabled="finishLocked" class="btn-danger">
         结束比赛
       </button>
       <button @click="exportExcel" :disabled="matchInfo.status !== 'finished'" class="btn-secondary">
         导出 Excel
       </button>
     </div>
+
+    <section class="agent-panel" aria-label="AI 复盘助手">
+      <div class="agent-header">
+        <div>
+          <p class="section-kicker">AI Match Desk</p>
+          <h3>AI 复盘助手</h3>
+        </div>
+        <span class="agent-status">{{ agentStatusText }}</span>
+      </div>
+
+      <div class="agent-grid">
+        <div class="analysis-box">
+          <label for="analysis-focus">复盘关注点</label>
+          <textarea
+            id="analysis-focus"
+            v-model="analysisQuestion"
+            rows="3"
+            placeholder="例如：重点分析后半段连续丢分、发球轮表现、关键分处理"
+          ></textarea>
+          <button @click="analyzeMatch" :disabled="agentLoading" class="btn-agent">
+            {{ agentLoading ? '生成中...' : '生成 AI 复盘' }}
+          </button>
+
+          <div v-if="agentError" class="alert alert-error agent-alert">{{ agentError }}</div>
+
+          <div v-if="analysis" class="analysis-result">
+            <div class="summary-card">
+              <span>总结</span>
+              <p>{{ analysis.summary || analysis.raw_text }}</p>
+              <small v-if="analysisSnapshot">{{ analysisSnapshot }}</small>
+            </div>
+
+            <div v-if="analysis.strengths?.length" class="insight-section">
+              <h4>优势</h4>
+              <ul>
+                <li v-for="item in analysis.strengths" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+
+            <div v-if="analysis.weaknesses?.length" class="insight-section">
+              <h4>问题</h4>
+              <ul>
+                <li v-for="item in analysis.weaknesses" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+
+            <div v-if="analysis.key_moments?.length" class="key-moments">
+              <h4>关键回合</h4>
+              <div v-for="moment in analysis.key_moments" :key="`${moment.rally_number}-${moment.reason}`" class="moment-row">
+                <strong>#{{ moment.rally_number }}</strong>
+                <span>{{ moment.reason }}</span>
+              </div>
+            </div>
+
+            <div v-if="analysis.training_suggestions?.length" class="insight-section training">
+              <h4>训练建议</h4>
+              <ul>
+                <li v-for="item in analysis.training_suggestions" :key="item">{{ item }}</li>
+              </ul>
+            </div>
+          </div>
+
+          <div v-else class="empty-agent-state">
+            完成几个回合后，可以生成基于比分走势、发球轮和连续得分的复盘。
+          </div>
+        </div>
+
+        <div class="chat-box">
+          <div class="chat-header">
+            <h4>比赛问答</h4>
+            <span>{{ chatMessages.length }} 条</span>
+          </div>
+
+          <div class="chat-log">
+            <div v-if="!chatMessages.length" class="chat-empty">
+              可以问：这场谁发球更占优？我在哪些回合开始丢节奏？
+            </div>
+            <div v-for="message in chatMessages" :key="message.id" class="chat-message" :class="message.role">
+              <span>{{ message.role === 'user' ? '我' : 'AI' }}</span>
+              <p>{{ message.content }}</p>
+            </div>
+          </div>
+
+          <form class="chat-form" @submit.prevent="sendAgentQuestion">
+            <input
+              v-model="chatQuestion"
+              type="text"
+              placeholder="围绕这场比赛提问"
+              :disabled="chatLoading"
+            />
+            <button type="submit" :disabled="chatLoading || !chatQuestion.trim()" class="btn-secondary">
+              {{ chatLoading ? '发送中' : '发送' }}
+            </button>
+          </form>
+        </div>
+      </div>
+    </section>
   </section>
 </template>
 
@@ -90,6 +187,15 @@ const rallyNumber = ref(1)
 const currentServerId = ref('')
 const loading = ref(false)
 const error = ref(null)
+const analysisQuestion = ref('')
+const analysis = ref(null)
+const agentLoading = ref(false)
+const agentError = ref(null)
+const analysisSnapshot = ref('')
+const chatQuestion = ref('')
+const chatMessages = ref([])
+const chatLoading = ref(false)
+let chatMessageId = 0
 
 const currentServerName = computed(() => {
   if (currentServerId.value === matchInfo.player1Id) return matchInfo.player1Name
@@ -102,6 +208,16 @@ const statusText = computed(() => {
   if (['ongoing', 'started', 'active', 'in_progress'].includes(matchInfo.status)) return '进行中'
   return matchInfo.status || '进行中'
 })
+
+const agentStatusText = computed(() => {
+  if (agentLoading.value || chatLoading.value) return '思考中'
+  if (analysis.value) return '已有复盘'
+  return '待生成'
+})
+
+const scoreLocked = computed(() => loading.value || matchInfo.status === 'finished')
+
+const finishLocked = computed(() => matchInfo.status === 'finished')
 
 const fetchMatchState = async () => {
   try {
@@ -125,16 +241,27 @@ const fetchMatchState = async () => {
 
 onMounted(async () => {
   // Load match info from local storage (mocking backend retrieval)
+  const routeMatchId = String(route.params.id || '')
   const storedMatch = localStorage.getItem('currentMatch')
   if (storedMatch) {
     const parsed = JSON.parse(storedMatch)
     Object.assign(matchInfo, parsed)
+    if (routeMatchId && routeMatchId !== String(parsed.id)) {
+      matchInfo.id = routeMatchId
+      matchInfo.status = ''
+      matchInfo.player1Name = ''
+      matchInfo.player2Name = ''
+    }
     currentServerId.value = parsed.firstServerId
 
+    await fetchMatchState()
+  } else if (routeMatchId) {
+    matchInfo.id = routeMatchId
     await fetchMatchState()
   } else {
     // Redirect back if no match info
     router.push('/')
+    return
   }
 
   // Start video recording
@@ -244,6 +371,70 @@ const exportExcel = async () => {
     console.error('Export failed:', err)
     alert('导出失败。请确认服务器是否可用。')
   }
+}
+
+const analyzeMatch = async () => {
+  const snapshot = `基于请求时比分 ${score.p1}-${score.p2}，第 ${rallyNumber.value} 回合前的数据生成`
+  try {
+    agentLoading.value = true
+    agentError.value = null
+    analysis.value = null
+    analysisSnapshot.value = ''
+
+    const response = await api.analyzeMatch(matchInfo.id, analysisQuestion.value)
+    analysis.value = response.data
+    analysisSnapshot.value = snapshot
+  } catch (err) {
+    console.error('Agent analysis failed:', err)
+    agentError.value = formatAgentError(err)
+  } finally {
+    agentLoading.value = false
+  }
+}
+
+const sendAgentQuestion = async () => {
+  const question = chatQuestion.value.trim()
+  if (!question || chatLoading.value) return
+
+  const userMessage = {
+    id: ++chatMessageId,
+    role: 'user',
+    content: question
+  }
+  chatMessages.value.push(userMessage)
+  chatQuestion.value = ''
+
+  try {
+    chatLoading.value = true
+    agentError.value = null
+
+    const response = await api.chatWithAgent(matchInfo.id, question)
+    chatMessages.value.push({
+      id: ++chatMessageId,
+      role: 'agent',
+      content: response.data.answer
+    })
+  } catch (err) {
+    console.error('Agent chat failed:', err)
+    const message = formatAgentError(err)
+    agentError.value = message
+    chatMessages.value.push({
+      id: ++chatMessageId,
+      role: 'agent',
+      content: message
+    })
+  } finally {
+    chatLoading.value = false
+  }
+}
+
+const formatAgentError = (err) => {
+  const status = err.response?.status
+  const backendMessage = err.response?.data?.error || err.response?.data?.message
+  if (status === 501) return '后端 Agent 当前未启用。'
+  if (status === 503) return '后端 Agent 尚未配置模型密钥。'
+  if (backendMessage) return backendMessage
+  return 'AI 助手请求失败，请检查后端服务和模型配置。'
 }
 </script>
 
@@ -488,6 +679,266 @@ h3 {
   background: #fff;
 }
 
+.agent-panel {
+  margin-top: 24px;
+  padding: clamp(18px, 3vw, 26px);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background:
+    linear-gradient(135deg, rgba(15, 95, 82, 0.08), transparent 42%),
+    rgba(255, 255, 255, 0.9);
+  box-shadow: var(--shadow);
+}
+
+.agent-header,
+.chat-header {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.agent-header {
+  margin-bottom: 18px;
+}
+
+.agent-header h3 {
+  min-height: 0;
+  margin: 0;
+  font-size: clamp(24px, 3vw, 34px);
+}
+
+.agent-status {
+  min-height: 34px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 12px;
+  border: 1px solid rgba(15, 95, 82, 0.22);
+  border-radius: 999px;
+  color: var(--court-dark);
+  background: rgba(207, 232, 95, 0.28);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.agent-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(280px, 0.8fr);
+  gap: 18px;
+  align-items: stretch;
+}
+
+.analysis-box,
+.chat-box {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.88);
+}
+
+.analysis-box label {
+  display: block;
+  margin-bottom: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+textarea,
+.chat-form input {
+  width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  background: var(--panel-soft);
+  outline: none;
+}
+
+textarea {
+  min-height: 96px;
+  resize: vertical;
+  padding: 12px 14px;
+  line-height: 1.5;
+}
+
+textarea:focus,
+.chat-form input:focus {
+  border-color: var(--court);
+  box-shadow: 0 0 0 4px rgba(15, 95, 82, 0.12);
+}
+
+.btn-agent {
+  width: 100%;
+  min-height: 48px;
+  margin-top: 12px;
+  border: 0;
+  border-radius: 8px;
+  color: #17201c;
+  background: linear-gradient(135deg, var(--lime), var(--amber));
+  box-shadow: 0 14px 28px rgba(207, 232, 95, 0.22);
+  cursor: pointer;
+  font-weight: 900;
+}
+
+.agent-alert {
+  margin: 12px 0 0;
+}
+
+.analysis-result {
+  display: grid;
+  gap: 14px;
+  margin-top: 16px;
+}
+
+.summary-card {
+  padding: 16px;
+  border-radius: 8px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--court-dark), var(--court));
+}
+
+.summary-card span {
+  display: block;
+  margin-bottom: 8px;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+  font-weight: 900;
+}
+
+.summary-card p,
+.chat-message p {
+  margin: 0;
+  line-height: 1.65;
+}
+
+.summary-card small {
+  display: block;
+  margin-top: 12px;
+  color: rgba(255, 255, 255, 0.68);
+  line-height: 1.5;
+}
+
+.insight-section,
+.key-moments {
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+}
+
+.insight-section h4,
+.key-moments h4,
+.chat-header h4 {
+  margin: 0 0 10px;
+  font-size: 16px;
+}
+
+.insight-section ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+  line-height: 1.55;
+}
+
+.training {
+  border-color: rgba(207, 232, 95, 0.8);
+  background: #fbfde9;
+}
+
+.moment-row {
+  display: grid;
+  grid-template-columns: 58px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  line-height: 1.5;
+}
+
+.moment-row:first-of-type {
+  border-top: 0;
+}
+
+.moment-row strong {
+  color: var(--court);
+}
+
+.empty-agent-state,
+.chat-empty {
+  margin-top: 14px;
+  padding: 16px;
+  border: 1px dashed #cdd8c6;
+  border-radius: 8px;
+  color: var(--muted);
+  background: rgba(246, 247, 242, 0.72);
+  line-height: 1.6;
+}
+
+.chat-box {
+  display: grid;
+  grid-template-rows: auto minmax(260px, 1fr) auto;
+  gap: 14px;
+}
+
+.chat-header span {
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+
+.chat-log {
+  min-height: 260px;
+  max-height: 520px;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-right: 4px;
+}
+
+.chat-message {
+  display: grid;
+  gap: 6px;
+  width: min(92%, 460px);
+}
+
+.chat-message span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 900;
+}
+
+.chat-message p {
+  padding: 12px 14px;
+  border-radius: 8px;
+  background: var(--panel-soft);
+}
+
+.chat-message.user {
+  align-self: flex-end;
+}
+
+.chat-message.user span {
+  text-align: right;
+}
+
+.chat-message.user p {
+  color: #fff;
+  background: var(--court);
+}
+
+.chat-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+}
+
+.chat-form input {
+  min-height: 46px;
+  padding: 0 14px;
+}
+
 @keyframes pulse {
   0%,
   100% {
@@ -502,6 +953,10 @@ h3 {
 @media (max-width: 960px) {
   .scoreboard {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agent-grid {
+    grid-template-columns: 1fr;
   }
 
   .player-score {
@@ -555,6 +1010,19 @@ h3 {
 
   .vs {
     margin: 0 auto 8px;
+  }
+
+  .agent-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .chat-form {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-form .btn-secondary {
+    width: 100%;
   }
 }
 </style>

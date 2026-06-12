@@ -51,5 +51,23 @@ export default {
     return api.get(`/match/${matchId}/export`, {
       responseType: 'blob' // Important for file download
     })
+  },
+
+  // Agent
+  analyzeMatch(matchId, question = '') {
+    return api.post(`/agent/match/${matchId}/analyze`, {
+      question
+    }, {
+      timeout: 45000
+    })
+  },
+
+  chatWithAgent(matchId, question) {
+    return api.post('/agent/chat', {
+      match_id: Number(matchId),
+      question
+    }, {
+      timeout: 45000
+    })
   }
 }

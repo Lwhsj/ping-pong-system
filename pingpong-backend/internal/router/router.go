@@ -23,10 +23,13 @@ func New(db *gorm.DB, cfg config.Config) *gin.Engine {
 	playerService := service.NewPlayerService(db)
 	matchService := service.NewMatchService(db)
 	rallyService := service.NewRallyService(db)
+	llmClient, agentErr := service.NewLLMClient(cfg)
+	agentService := service.NewAgentService(db, llmClient)
 
 	playerHandler := handler.NewPlayerHandler(playerService)
 	matchHandler := handler.NewMatchHandler(matchService)
 	rallyHandler := handler.NewRallyHandler(rallyService)
+	agentHandler := handler.NewAgentHandler(agentService, agentErr)
 	videoHandler, err := handler.NewVideoHandler(cfg)
 	if err != nil {
 		log.Fatalf("create video handler: %v", err)
@@ -45,6 +48,9 @@ func New(db *gorm.DB, cfg config.Config) *gin.Engine {
 		api.GET("/match/:id/export", matchHandler.ExportMatch)
 
 		api.POST("/rally", rallyHandler.SaveRally)
+
+		api.POST("/agent/match/:id/analyze", agentHandler.AnalyzeMatch)
+		api.POST("/agent/chat", agentHandler.Chat)
 
 		api.POST("/upload/video", videoHandler.UploadVideo)
 		api.GET("/video/:fileName", videoHandler.StreamVideo)
