@@ -1,0 +1,100 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend-go:
+    name: Backend (Go)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: pingpong-backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: pingpong-backend/go.mod
+          cache: true
+          cache-dependency-path: pingpong-backend/go.sum
+      - name: Format check
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "gofmt needed:"
+            gofmt -l .
+            exit 1
+          fi
+      - name: Test
+        run: go test ./...
+      - name: Build
+        run: |
+          mkdir -p dist
+          GOOS=linux GOARCH=amd64 go build -o dist/pingpong-backend-linux-amd64 ./cmd/server
+          GOOS=windows GOARCH=amd64 go build -o dist/pingpong-backend-windows-amd64.exe ./cmd/server
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: pingpong-backend
+          path: pingpong-backend/dist/*
+
+  frontend-web:
+    name: Frontend (Web)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tennis-web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tennis-web/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+
+  client-referee:
+    name: Client (Referee)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: referee-client
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: referee-client/package-lock.json
+      - name: Install
+        run: npm ci
+      - name: Build
+        run: npm run build
+
+  legacy-java:
+    name: Legacy Server (Java, compile only)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tennis-server
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: maven
+      - name: Package (skip tests)
+        run: mvn -B -DskipTests package

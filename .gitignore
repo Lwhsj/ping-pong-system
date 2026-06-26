@@ -1,5 +1,7 @@
-﻿# Ignore dot-prefixed directories in the repository root
+# Ignore dot-prefixed directories in the repository root
 .*/
+!.github/
+!.github/**
 .agents/
 .claude/
 .codex/
