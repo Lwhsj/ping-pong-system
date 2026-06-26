@@ -11,6 +11,7 @@ import (
 type Config struct {
 	AppPort             string
 	AppEnv              string
+	DBDriver            string
 	DBHost              string
 	DBPort              string
 	DBName              string
@@ -18,6 +19,7 @@ type Config struct {
 	DBPassword          string
 	DBParseTime         string
 	DBLoc               string
+	SQLitePath          string
 	UploadDir           string
 	MaxUploadMB         int64
 	AgentEnabled        bool
@@ -33,6 +35,7 @@ func Load() Config {
 	return Config{
 		AppPort:             getEnv("APP_PORT", "8080"),
 		AppEnv:              getEnv("APP_ENV", "development"),
+		DBDriver:            getEnv("DB_DRIVER", "mysql"),
 		DBHost:              getEnv("DB_HOST", "127.0.0.1"),
 		DBPort:              getEnv("DB_PORT", "3306"),
 		DBName:              getEnv("DB_NAME", "pingpong"),
@@ -40,6 +43,7 @@ func Load() Config {
 		DBPassword:          getEnv("DB_PASSWORD", "1234"),
 		DBParseTime:         getEnv("DB_PARSE_TIME", "true"),
 		DBLoc:               getEnv("DB_LOC", "Local"),
+		SQLitePath:          getEnv("SQLITE_PATH", "pingpong.db"),
 		UploadDir:           getEnv("UPLOAD_DIR", "uploads"),
 		MaxUploadMB:         getEnvInt64("MAX_UPLOAD_MB", 50),
 		AgentEnabled:        getEnvBool("AGENT_ENABLED", true),

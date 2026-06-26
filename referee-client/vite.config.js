@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [vue()],
   base: './', // Important for Electron to load assets with relative paths in production
   server: {
-    port: 5173,
+    port: 5174,
     strictPort: true
   },
   resolve: {

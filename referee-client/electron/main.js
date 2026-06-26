@@ -1,6 +1,8 @@
 const { app, BrowserWindow } = require('electron')
 const path = require('path')
 
+app.setPath('userData', path.join(app.getPath('temp'), 'referee-client-user-data'))
+
 function createWindow () {
   const win = new BrowserWindow({
     width: 1000,
@@ -17,7 +19,7 @@ function createWindow () {
   const isDev = process.env.NODE_ENV !== 'production' && !app.isPackaged;
 
   if (isDev) {
-    win.loadURL('http://localhost:5173')
+    win.loadURL('http://localhost:5174')
     // Open the DevTools.
     // win.webContents.openDevTools()
   } else {
