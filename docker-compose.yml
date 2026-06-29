@@ -1,0 +1,54 @@
+# 乒乓球比赛管理系统 —— 本地一键编排（后端 + Web 前端 + 数据库）
+# 启动：docker compose up -d    访问：Web http://localhost:5173  后端 http://localhost:8080
+services:
+  backend:
+    build: ./pingpong-backend
+    image: pingpong-backend
+    environment:
+      APP_PORT: "8080"
+      DB_DRIVER: mysql
+      DB_HOST: db
+      DB_PORT: "3306"
+      DB_NAME: pingpong
+      DB_USER: root
+      DB_PASSWORD: "1234"
+      # AI 复盘默认关闭；如需启用，置为 true 并填入 LLM_API_KEY
+      AGENT_ENABLED: "false"
+      # LLM_API_KEY: ""
+    ports:
+      - "8080:8080"
+    volumes:
+      - backend_uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  web:
+    build: ./tennis-web
+    image: tennis-web
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  db:
+    image: mysql:8
+    environment:
+      MYSQL_ROOT_PASSWORD: "1234"
+      MYSQL_DATABASE: pingpong
+    volumes:
+      - db_data:/var/lib/mysql
+      # 首次启动时自动执行建表与种子数据（schema.sql 先于 seed.sql）
+      - ./pingpong-backend/migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p1234"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  backend_uploads:
+  db_data:
